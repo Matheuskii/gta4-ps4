@@ -7059,30 +7059,38 @@ Gta4NativeGraphicsSystem::CaptureTextureResourceUncached(
       uint8_t* destination = payload.data() + payload_offset;
       for (uint32_t block_z = 0; block_z < mip_depth; ++block_z) {
         for (uint32_t block_y = 0; block_y < copy_block_height; ++block_y) {
-          for (uint32_t block_x = 0; block_x < copy_block_width; ++block_x) {
-            const uint32_t source_x = packed_offset_x + block_x;
-            const uint32_t source_y = packed_offset_y + block_y;
-            int32_t source_offset;
-            if (info.is_tiled) {
-              source_offset = is_3d ? texture_util::GetTiledOffset3D(
-                                          int32_t(source_x), int32_t(source_y), int32_t(block_z),
-                                          guest_extent.block_pitch_h, guest_extent.block_pitch_v,
-                                          guest_bytes_per_block_log2)
-                                    : texture_util::GetTiledOffset2D(
-                                          int32_t(source_x), int32_t(source_y),
-                                          guest_extent.block_pitch_h, guest_bytes_per_block_log2);
-            } else {
-              source_offset = int32_t(
-                  ((block_z * guest_extent.block_pitch_v + source_y) * guest_extent.block_pitch_h +
-                   source_x) *
-                  guest_bytes_per_block);
+          const uint32_t source_y = packed_offset_y + block_y;
+          const auto source_offset_at = [&](uint32_t source_x) -> int32_t {
+            if (!info.is_tiled) {
+              return int32_t(((block_z * guest_extent.block_pitch_v + source_y) *
+                              guest_extent.block_pitch_h + source_x) * guest_bytes_per_block);
             }
+            return is_3d ? texture_util::GetTiledOffset3D(
+                               int32_t(source_x), int32_t(source_y), int32_t(block_z),
+                               guest_extent.block_pitch_h, guest_extent.block_pitch_v,
+                               guest_bytes_per_block_log2)
+                         : texture_util::GetTiledOffset2D(int32_t(source_x), int32_t(source_y),
+                                                          guest_extent.block_pitch_h,
+                                                          guest_bytes_per_block_log2);
+          };
+          const size_t host_slice_offset = size_t(block_z) * host_extent.block_height *
+                                           host_extent.block_pitch_h * host_bytes_per_block;
+          if (!convert_block_to_pixels && base_format != xenos::TextureFormat::k_DXT3A) {
+            uint8_t* row = destination + host_slice_offset +
+                           size_t(block_y) * host_extent.block_pitch_h * host_bytes_per_block;
+            if (!texture_conversion::CopySwapBlockRow(info.endianness, row, layer_source,
+                    packed_offset_x, copy_block_width, host_bytes_per_block, info.is_tiled,
+                    source_offset_at)) {
+              return reject("source-offset");
+            }
+            continue;
+          }
+          for (uint32_t block_x = 0; block_x < copy_block_width; ++block_x) {
+            const int32_t source_offset = source_offset_at(packed_offset_x + block_x);
             if (source_offset < 0) {
               return reject("source-offset");
             }
             const uint8_t* source_block = layer_source + uint32_t(source_offset);
-            const size_t host_slice_offset = size_t(block_z) * host_extent.block_height *
-                                             host_extent.block_pitch_h * host_bytes_per_block;
             if (convert_block_to_pixels) {
               const size_t destination_offset =
                   host_slice_offset +
@@ -7122,19 +7130,13 @@ Gta4NativeGraphicsSystem::CaptureTextureResourceUncached(
                                                           destination + destination_offset,
                                                           source_block, destination_pitch);
               }
-            } else if (base_format == xenos::TextureFormat::k_DXT3A) {
+            } else {
               const size_t destination_offset =
                   host_slice_offset +
                   size_t(block_y * host_extent.block_pitch_h + block_x) * host_bytes_per_block;
               texture_conversion::ConvertTexelDXT3AToDXT3(info.endianness,
                                                           destination + destination_offset,
                                                           source_block, host_bytes_per_block);
-            } else {
-              const size_t destination_offset =
-                  host_slice_offset +
-                  size_t(block_y * host_extent.block_pitch_h + block_x) * host_bytes_per_block;
-              texture_conversion::CopySwapBlock(info.endianness, destination + destination_offset,
-                                                source_block, host_bytes_per_block);
             }
           }
         }
@@ -25521,7 +25523,7 @@ bool Gta4NativeGraphicsSystem::RecordPrimitiveUpBatch(
   const VkDeviceSize default_vertex_offset = 0;
   BindNativeVertexBuffer(command_buffer, kDefaultVertexBinding, default_vertex_buffer, default_vertex_offset);
   BindNativeVertexBuffer(command_buffer, 0, vertices.buffer, vertices.offset);
-  dfn.vkCmdBindIndexBuffer(command_buffer, indices.buffer, indices.offset, VK_INDEX_TYPE_UINT32);
+  BindNativeIndexBuffer(command_buffer, indices.buffer, indices.offset, VK_INDEX_TYPE_UINT32);
   ObserveNativeGpuProfileDraw(first, pipeline, target.samples, 0, uint32_t(index_count));
   if (REXCVAR_GET(gta4_native_debug_gpu_attribution) != 2) dfn.vkCmdDrawIndexed(command_buffer, uint32_t(index_count), 1, 0, 0, 0);
   TraceModernShaderDraw(first, target);
@@ -25896,8 +25898,7 @@ bool Gta4NativeGraphicsSystem::RecordPrimitiveUp(VkCommandBuffer command_buffer,
       profile::CpuCall(profile::CpuOp::kDriverDraw, [&] { if (!REXCVAR_GET(gta4_native_debug_gpu_attribution) || REXCVAR_GET(gta4_native_debug_gpu_attribution) == 1) dfn.vkCmdDraw(command_buffer, 4, 1, rectangle * 4, 0); });
     }
   } else if (draw.primitive_type == uint32_t(xenos::PrimitiveType::kQuadList)) {
-    profile::CpuCall(profile::CpuOp::kDriverBind, [&] { return dfn.vkCmdBindIndexBuffer(command_buffer, quad_list_indices.buffer, quad_list_indices.offset,
-                             VK_INDEX_TYPE_UINT32); });
+    BindNativeIndexBuffer(command_buffer, quad_list_indices.buffer, quad_list_indices.offset, VK_INDEX_TYPE_UINT32);
     ObserveNativeGpuProfileDraw(command, pipeline, target.samples, 0, quad_list_index_count);
     profile::CpuCall(profile::CpuOp::kDriverDraw, [&] { if (!REXCVAR_GET(gta4_native_debug_gpu_attribution) || REXCVAR_GET(gta4_native_debug_gpu_attribution) == 1) dfn.vkCmdDrawIndexed(command_buffer, quad_list_index_count, 1, 0, 0, 0); });
   } else if (draw.primitive_type == uint32_t(xenos::PrimitiveType::kTriangleFan)) {
@@ -25908,7 +25909,7 @@ bool Gta4NativeGraphicsSystem::RecordPrimitiveUp(VkCommandBuffer command_buffer,
     if (!AllocateUpload(count * sizeof(uint32_t), alignof(uint32_t), indices, NativeUploadKind::kIndex) ||
         !WriteNativeSequentialFan({reinterpret_cast<uint32_t*>(indices.mapping), size_t(count)},
                                   host_vertex_count)) return fail("triangle-fan-upload");
-    dfn.vkCmdBindIndexBuffer(command_buffer, indices.buffer, indices.offset, VK_INDEX_TYPE_UINT32);
+    BindNativeIndexBuffer(command_buffer, indices.buffer, indices.offset, VK_INDEX_TYPE_UINT32);
     ObserveNativeGpuProfileDraw(command, pipeline, target.samples, 0, uint32_t(count));
     if (REXCVAR_GET(gta4_native_debug_gpu_attribution) != 2) dfn.vkCmdDrawIndexed(command_buffer, uint32_t(count), 1, 0, 0, 0);
   } else {
@@ -26110,8 +26111,7 @@ bool Gta4NativeGraphicsSystem::RecordPrimitive(VkCommandBuffer command_buffer,
       *(indices++) = vertex + 2;
       *(indices++) = vertex + 3;
     }
-    profile::CpuCall(profile::CpuOp::kDriverBind, [&] { return dfn.vkCmdBindIndexBuffer(command_buffer, indices_allocation.buffer, indices_allocation.offset,
-                             VK_INDEX_TYPE_UINT32); });
+    BindNativeIndexBuffer(command_buffer, indices_allocation.buffer, indices_allocation.offset, VK_INDEX_TYPE_UINT32);
     ObserveNativeGpuProfileDraw(command, pipeline, target.samples, 0, index_count);
     profile::CpuCall(profile::CpuOp::kDriverDraw, [&] { if (!REXCVAR_GET(gta4_native_debug_gpu_attribution) || REXCVAR_GET(gta4_native_debug_gpu_attribution) == 1) dfn.vkCmdDrawIndexed(command_buffer, index_count, 1, 0, int32_t(draw.start_vertex), 0); });
   } else if (draw.primitive_type == uint32_t(xenos::PrimitiveType::kTriangleFan)) {
@@ -26122,7 +26122,7 @@ bool Gta4NativeGraphicsSystem::RecordPrimitive(VkCommandBuffer command_buffer,
     if (!AllocateUpload(count * sizeof(uint32_t), alignof(uint32_t), indices, NativeUploadKind::kIndex) ||
         !WriteNativeSequentialFan({reinterpret_cast<uint32_t*>(indices.mapping), size_t(count)},
                                   draw.vertex_count, draw.start_vertex)) return fail("triangle-fan-upload");
-    dfn.vkCmdBindIndexBuffer(command_buffer, indices.buffer, indices.offset, VK_INDEX_TYPE_UINT32);
+    BindNativeIndexBuffer(command_buffer, indices.buffer, indices.offset, VK_INDEX_TYPE_UINT32);
     ObserveNativeGpuProfileDraw(command, pipeline, target.samples, 0, uint32_t(count));
     if (REXCVAR_GET(gta4_native_debug_gpu_attribution) != 2) dfn.vkCmdDrawIndexed(command_buffer, uint32_t(count), 1, 0, 0, 0);
   } else {
@@ -26131,6 +26131,20 @@ bool Gta4NativeGraphicsSystem::RecordPrimitive(VkCommandBuffer command_buffer,
   }
   TraceModernShaderDraw(command, target);
   return true;
+}
+
+void Gta4NativeGraphicsSystem::BindNativeIndexBuffer(VkCommandBuffer command_buffer,
+                                                     VkBuffer buffer, VkDeviceSize offset,
+                                                     VkIndexType type) {
+  if (!native_draw_state_cache_.UpdateIndexBuffer(NativeVulkanHandleIdentity(command_buffer),
+          NativeVulkanHandleIdentity(buffer), offset, uint32_t(type))) {
+    return;
+  }
+  auto* vulkan_provider = static_cast<ui::vulkan::VulkanProvider*>(provider_.get());
+  const auto& dfn = vulkan_provider->vulkan_device()->functions();
+  profile::CpuCall(profile::CpuOp::kDriverBind, [&] {
+    dfn.vkCmdBindIndexBuffer(command_buffer, buffer, offset, type);
+  });
 }
 
 void Gta4NativeGraphicsSystem::BindNativeVertexBuffer(VkCommandBuffer command_buffer,
@@ -26726,7 +26740,7 @@ bool Gta4NativeGraphicsSystem::RecordIndexedPrimitive(VkCommandBuffer command_bu
     }
   }
 
-  profile::CpuCall(profile::CpuOp::kDriverBind, [&] { return dfn.vkCmdBindIndexBuffer(command_buffer, host_index_buffer, host_index_offset, bound_index_type); });
+  BindNativeIndexBuffer(command_buffer, host_index_buffer, host_index_offset, bound_index_type);
   if (IsHoveGantryGeometryCandidate(command)) {
     static std::atomic<uint64_t> hove_recorded_draw_count{0};
     const uint64_t hit = ++hove_recorded_draw_count;
