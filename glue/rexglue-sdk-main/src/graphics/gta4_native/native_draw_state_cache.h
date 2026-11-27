@@ -54,6 +54,10 @@ class NativeDrawStateCache {
     return vertex_buffers_[binding].Update({command_buffer, buffer, offset});
   }
 
+  bool UpdateIndexBuffer(uint64_t command_buffer, uint64_t buffer, uint64_t offset, uint32_t type) {
+    return index_buffer_.Update({command_buffer, buffer, offset, type});
+  }
+
  private:
   template <typename Value>
   struct Tracked {
@@ -73,6 +77,7 @@ class NativeDrawStateCache {
     bool operator==(const LayoutValues&) const = default;
   };
 
+  Tracked<std::array<uint64_t, 4>> index_buffer_;
   Tracked<uint64_t> pipeline_;
   Tracked<LayoutValues<DescriptorSetCount>> descriptors_;
   Tracked<std::array<uint32_t, 6>> viewport_;

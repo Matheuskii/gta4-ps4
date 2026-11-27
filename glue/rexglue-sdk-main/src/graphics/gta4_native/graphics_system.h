@@ -1629,6 +1629,8 @@ class Gta4NativeGraphicsSystem final : public system::IGraphicsSystem {
   // Index count RecordIndexedPrimitive uses instead of the command's own when
   // consecutive equivalent draws are recorded as one (0: none).
   uint32_t indexed_merge_count_override_ = 0;
+  void BindNativeIndexBuffer(VkCommandBuffer command_buffer, VkBuffer buffer, VkDeviceSize offset,
+                             VkIndexType type);
   void BindNativeVertexBuffer(VkCommandBuffer command_buffer, uint32_t binding, VkBuffer buffer,
                               VkDeviceSize offset);
   bool InitializeShaderCache();
