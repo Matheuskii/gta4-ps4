@@ -4,6 +4,13 @@ The PS4 target uses the Graine/ReXGlue application and the Orbis RADV bundle
 already used by `ps4-gladius`. The bundle keeps the OpenOrbis SDK, matching
 Mesa headers, RADV archive, and Vulkan entry point shim together.
 
+Download `orbis-sdk-v1.tar.gz` from the
+[orbis-porting-kit release](https://github.com/orbis-ports/orbis-porting-kit/releases/tag/orbis-sdk-v1).
+The SHA-256 of the archive is
+`f4f079a4df334b46a76996f895283904283d6a006f97102aafaa53d4ecfc9622`.
+Extract it and set `PS4_SDK_BUNDLE` to the extracted `orbis-sdk-v1` directory.
+Both PS4 build scripts check the fingerprint of its `BUNDLE.txt`.
+
 The supported clean-build host is Linux x86-64 with Git, CMake 3.25 or newer,
 Ninja, NASM 2.16 or newer, Python 3, and `sha256sum`. The Orbis SDK and host
 shader compiler are external inputs; their pinned locations and fingerprints

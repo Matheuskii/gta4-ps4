@@ -1,0 +1,38 @@
+# Experimental PS4 Slim profile. The game reads /data/LibertyRecomp/native.toml at startup.
+guest_cache_device = false
+log_level = "warn"
+gta4_ps4_trace = false
+ps4_cpu_sampler = false
+gta4_native_frame_timeline = false
+ps4_fps_counter = true
+
+# Console texture upload path and memory budgets from the release profile.
+gta4_native_gpu_detile = false
+ps4_gpu_arena_mib = 1536
+gta4_native_texture_memory_limit_mb = 384
+
+# Start at the release draw distance. Under sustained load the controller
+# can shorten it to 0.5 * 0.7 = 0.35 and restore it as frame times improve.
+gta4_frame_limit = 30
+gta4_draw_distance_scale = 0.5
+gta4_dynamic_draw_distance = true
+gta4_dynamic_draw_distance_min = 0.7
+# Leave reflection rates under the explicit settings below.
+gta4_fps_guard = 0
+
+# Scale ambient traffic, parked cars and pedestrians in busy streets.
+gta4_traffic_density_scale = 0.35
+gta4_parked_car_density_scale = 0.35
+gta4_ped_density_scale = 0.35
+gta4_scenario_ped_density_scale = 0.5
+
+# Reuse the sun shadow map for two frames between updates.
+gta4_native_shadow_interval = 3
+gta4_shadow_map_base_size = 256
+gta4_shadow_distance_scale = 0.5
+gta4_native_shadow_min_indices = 1000
+gta4_reflection_resolution = "original"
+ps5_environment_reflection_every = 4
+ps5_water_reflection_every = 2
+gta4_native_anti_aliasing = "fxaa"
+gta4_motion_blur = false
